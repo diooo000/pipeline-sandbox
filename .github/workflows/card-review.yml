@@ -1,0 +1,52 @@
+name: Card review
+
+on:
+  workflow_dispatch:
+    inputs:
+      card_key:
+        description: Jira card key (e.g. B20-12352)
+        required: true
+        default: B20-12352
+      post_comment:
+        description: Post the review to Jira as a comment (leave off for a dry run)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: card-review-${{ inputs.card_key }}
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Review card
+        env:
+          CARD_KEY: ${{ inputs.card_key }}
+          POST_COMMENT: ${{ inputs.post_comment }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_CLOUD_ID: ${{ secrets.JIRA_CLOUD_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: bash ci/card-review/run.sh
+
+      - name: Upload review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: card-review-${{ inputs.card_key }}
+          path: .card-review/
+          if-no-files-found: ignore
