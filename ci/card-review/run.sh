@@ -12,16 +12,22 @@ AUTH="$JIRA_EMAIL:$JIRA_API_TOKEN"
 WORK=".card-review/$CARD_KEY"
 mkdir -p "$WORK/attachments"
 
+jira() {
+  local out
+  out=$(curl -sS --fail-with-body --max-time 30 -u "$AUTH" -H 'Content-Type: application/json' "$@") \
+    || { echo "card-review: Jira request failed: $out" >&2; return 1; }
+  printf '%s' "$out"
+}
+
 echo "card-review: fetching $CARD_KEY"
-curl -sf --max-time 30 -u "$AUTH" \
-  "$JIRA/3/issue/$CARD_KEY?fields=summary,description,issuetype,priority,status,labels,reporter,created,attachment,issuelinks,parent" \
+jira "$JIRA/3/issue/$CARD_KEY?fields=summary,description,issuetype,priority,status,labels,reporter,created,attachment,issuelinks,parent" \
   > "$WORK/card.json"
 jq '{key, summary: .fields.summary, status: .fields.status.name}' "$WORK/card.json"
 
 jq -r '.fields.attachment[]? | select(.mimeType | startswith("image/")) | "\(.id) \(.filename)"' "$WORK/card.json" \
   | head -n 5 \
   | while read -r id name; do
-      curl -sfL --max-time 60 -u "$AUTH" "$JIRA/3/attachment/content/$id" \
+      curl -sSL --fail-with-body --max-time 60 -u "$AUTH" "$JIRA/3/attachment/content/$id" \
         -o "$WORK/attachments/${id}-${name//[^A-Za-z0-9._-]/_}"
     done
 
@@ -48,11 +54,9 @@ if [ "${POST_COMMENT:-false}" != "true" ]; then
 fi
 
 jq -n --rawfile body "$WORK/review.txt" '{body: $body}' \
-  | curl -sf --max-time 30 -u "$AUTH" -H 'Content-Type: application/json' \
-      -X POST --data @- "$JIRA/2/issue/$CARD_KEY/comment" > /dev/null
+  | jira -X POST --data @- "$JIRA/2/issue/$CARD_KEY/comment" > /dev/null
 
-curl -sf --max-time 30 -u "$AUTH" -H 'Content-Type: application/json' -X PUT \
-  --data '{"update":{"labels":[{"add":"ai-reviewed"}]}}' \
+jira -X PUT --data '{"update":{"labels":[{"add":"ai-reviewed"}]}}' \
   "$JIRA/3/issue/$CARD_KEY" > /dev/null
 
 echo "card-review: posted to $CARD_KEY"
